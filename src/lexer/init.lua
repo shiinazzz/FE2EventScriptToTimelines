@@ -23,7 +23,6 @@
 		- number
 		- comment
 		- operator
-		- bracket
 --]=]
 
 local lexer = {}
