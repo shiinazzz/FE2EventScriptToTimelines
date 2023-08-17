@@ -1,0 +1,12 @@
+# vscode
+.vscode
+
+# Project place file
+/EventScriptToTimelines.rbxlx
+
+# Roblox Studio lock files
+/*.rbxlx.lock
+/*.rbxl.lock
+
+# Script-generated objects
+luau_temp_load.luau
