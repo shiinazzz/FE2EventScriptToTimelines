@@ -420,7 +420,6 @@ function Parser:parseInterpolatedString()
 			canContinue = not self:_peek(Token.Kind.InterpolatedStringEnd) and not self:_peek(Token.Kind.InterpolatedStringSimple)
 			
 			local str = self:_accept(Token.Kind.InterpolatedStringBegin) or self:_accept(Token.Kind.InterpolatedStringMid) or self:_accept(Token.Kind.InterpolatedStringEnd) or self:_accept(Token.Kind.InterpolatedStringSimple)
-			print("str", str)
 			table.insert(strings, str)
 
 			if not canContinue then
@@ -431,9 +430,7 @@ function Parser:parseInterpolatedString()
 				self:_error("Maliformed interpolated string, expected expression inside '{}'")
 			end
 
-			print("parseExpr")
 			local expr = self:parseExpr()
-			print(expr)
 			table.insert(exprs, expr)
 		end
 	end
