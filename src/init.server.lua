@@ -171,6 +171,7 @@ if USE_PROPER_PARSING then
 
             if callingFunctionName == "Vector3.new" then
                 -- Lune doesn't have Vector3.new() but it has vector()
+                print("Transforming to native Vector3.new")
                 return (if Vector3 then Vector3.new else vector)(unpack(functionArguments))
             end
 
