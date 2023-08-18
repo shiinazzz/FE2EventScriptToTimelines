@@ -22,6 +22,10 @@ local function Test(i)  -- mostly testing the parser
     task.wait(2)
 end
 
+Lib.btnFuncs[1] = function()
+    print()
+end
+
 test()
 
 Lib.Script.MovePart(Lib.Map.hentai, Vector3.new(1, 2, 3), 2, true)
@@ -36,6 +40,7 @@ local parser_keywords = { -- Used to identify specific variables
 local parser_functions_allocate = {}
 
 local scope_variables: {[string]: any} = {}
+local timelinesData: {[string]: {any}} = {main = {}}
 local timelinesOutput: {any} = {}
 
 -- EventScript->Timelines related functions
@@ -130,7 +135,7 @@ local function visitNode(astNode)
             print("doing move part with", functionArguments)
             addTimelineData({
                 XFrame_Function = "MovePart",
-                XFrame_Timestamp = delayTimePerScope[currentScope],
+                XFrame_Timestamp = delayTimePerScope[currentScope] or 0,
                 Object = functionArguments[1],
                 Translate = functionArguments[2],
                 XFrame_Length = functionArguments[3],
@@ -142,7 +147,7 @@ local function visitNode(astNode)
             print("doing move water with", functionArguments)
             addTimelineData({
                 XFrame_Function = "MovePart",
-                XFrame_Timestamp = delayTimePerScope[currentScope],
+                XFrame_Timestamp = delayTimePerScope[currentScope] or 0,
                 Object = functionArguments[1],
                 Translate = functionArguments[2],
                 XFrame_Length = functionArguments[3],
@@ -150,6 +155,9 @@ local function visitNode(astNode)
             })
         elseif callingFunctionName == "task.wait" or callingFunctionName == "wait" then
             print(`delaying time in scope {currentScope} by {functionArguments[1]}`)
+            if not delayTimePerScope[currentScope] then
+                delayTimePerScope[currentScope] = 0
+            end
             delayTimePerScope[currentScope] += tonumber(functionArguments[1]) or 0
         end
 
@@ -176,6 +184,12 @@ local function visitNode(astNode)
         return table.concat(name, ".")
     elseif astNode.kind == ast.Kind.SelfIndexName then
         return `{visitNode(astNode.value[1])}.{visitNode(astNode.value[2])}`
+    elseif astNode.kind == ast.Kind.LocalFunction then
+        print(astNode)
+        local functionDeclareName = visitNode(astNode.value[1])
+        if not timelinesData[functionDeclareName] then
+            timelinesData[functionDeclareName] = {}
+        end
     -- Simple types
     elseif table.find({ast.Kind.True, ast.Kind.False, ast.Kind.Nil, ast.Kind.Number, ast.Kind.String}, astNode.kind) then
         if astNode.kind == ast.Kind.True then

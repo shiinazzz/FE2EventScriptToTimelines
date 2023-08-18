@@ -118,7 +118,7 @@ function Lexer.sortOperators(operatorTable)
 	local tables = {}
 
 	for operator, token in pairs(operatorTable) do
-		local length = operator:len()
+		local length = #operator
 
 		-- Create tables before if they do not exist.
 		-- TODO: We can greatly improve this system.
@@ -381,7 +381,6 @@ function Lexer:read()
 					if #BraceStack > 0 then
 						local topStack = table.remove(BraceStack, #BraceStack)
 						if topStack == true then
-							print("continue mid")
 							return self:readInterpolatedStringSection(self._position, Token.Kind.InterpolatedStringMid, Token.Kind.InterpolatedStringEnd)
 						end
 					end

@@ -6,7 +6,12 @@ local AstNode = if script then require(script.Parent.ast) else require("./ast")
 local Token = if script then require(script.Parent.lex_token) else require("./lex_token")
 
 local Parser = {}
-Parser.__index = Parser
+Parser.__index = function(self, index)
+	if not table.find({"_peek", "_accept", "_expect"}, index) then
+		print(`Parser:{index}`)
+	end
+ 	return rawget(Parser, index)
+end
 
 Parser.simpleTokens = {
 	[Token.Kind.ReservedTrue] = AstNode.Kind.True,
@@ -54,6 +59,7 @@ function Parser.new(tokens, names, options, advancer)
 	self._advancer = advancer or function()
 		index = index + 1
 		if index <= #self._tokens then
+			print("step", index, self._tokens[index].kind, self._tokens[index].value)
 			return self._tokens[index]
 		end
 
@@ -855,6 +861,7 @@ function Parser:parsePrimaryExpr()
 		end
 	end
 
+	print("return from primary")
 	return expr
 end
 
