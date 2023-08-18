@@ -1,11 +1,35 @@
 local luau = require("./luau")
-local lexer = if script then require(script.lexer) else require("./lexer/init")
+local lexer = if script then require(script.Parent.lexer) else require("./lexer/init")
 local eventScript = [[
-local test = Lib
+local idkLib = game.Workspace.Multiplayer:GetMapVals()
+local l = workspace.Multiplayer:GetMapVals()
+local test = idkLib
+local Lib = l
+local acallingfunction = workspace:Help()
+acallingfunction.call()
 test.Script.MoveWater(Vector3.new(1, 2, 3), 10)
+idkLib.Script.MovePart()
+local testinter = `hi`
+local testInterExpr = `hi{1 + 2}`
+l.Script.MovePart()
+
+local function Test(i)
+    wait(1)
+    Lib.Script.MoveWater()
+    task.wait(2)
+end
+
+test()
 ]]
 
 local luau_reserveds = {"if", "then", "end", "for", "in", "local"}
+local luau_globalMaps = {
+    ["workspace"] = "game.Workspace"
+}
+local parser_keywords = { -- Used to identify specific variables
+    FE2_LIB = "$FE2_LIB"
+}
+local parser_functions_allocate = {}
 local lex_errors = {
     INVALID_SYNTAX = "Invalid syntax",
     LUAU_RESERVED = "Reserved keyword"
@@ -131,8 +155,8 @@ function throwLexError(errorContent: string, type: string)
 end
 
 -- EventScript->Timelines related functions
-function createTimelineData(data: {[string]: string})
-    
+function addTimelineData(data: {[string]: string})
+    table.insert(timelinesOutput, data)
 end
 
 if USE_PROPER_PARSING then
@@ -140,16 +164,47 @@ if USE_PROPER_PARSING then
     local luau_parser = require("luaul/parser")
     local luau_ast = require("luaul/ast")
     local luau_tokens = luau_lexer.new(eventScript):scan()
+    print(luau_tokens)
     local parser = luau_parser.new(luau_tokens)
     parser:parseChunk()
     local astRoot = parser.result
+
+    local currentScope = 0 -- main scope is 0
+    local delayTimePerScope = {}
+
+    local function isSelfCall(functionName: string, firstArgument: string?): boolean
+        if not firstArgument then
+            return false
+        end
+
+        local nameSplit = string.split(functionName, ".")
+        local argumentSplit = string.split(firstArgument, ".")
+        if #nameSplit - #argumentSplit ~= 1 then
+            return false
+        end
+
+        for i = 1, #argumentSplit do
+            if nameSplit[i] ~= argumentSplit[i] then
+                return false
+            end
+        end
+
+        return true
+    end
     
     local function visitNode(astNode)
         if astNode.kind == luau_ast.Kind.Local then
             local toBeAssigned = visitNode(astNode.value[1][1])
             local assignedValue = visitNode(astNode.value[2][1])
-            print(`{toBeAssigned} = {assignedValue}`)
             variables.scope_variables[toBeAssigned] = assignedValue
+            if type(assignedValue) == "table" then
+                if assignedValue.functionName == "game.Workspace.Multiplayer.GetMapVals" and isSelfCall(assignedValue.functionName, assignedValue.functionArguments[1]) then
+                    print("Detected FE2's Lib declaration, assigning keyword")
+                    variables.scope_variables[toBeAssigned] = parser_keywords.FE2_LIB
+                end
+            end
+
+            return
         elseif astNode.kind == luau_ast.Kind.Binding then
             local binding = table.create(#astNode.value)
             for i, nameValue in astNode.value do
@@ -160,8 +215,9 @@ if USE_PROPER_PARSING then
             end
             return table.concat(binding, ".")
         elseif astNode.kind == luau_ast.Kind.Name then
-            if variables.scope_variables[astNode.value] then
-                return variables.scope_variables[astNode.value]
+            local replacedVar = variables.scope_variables[astNode.value] or luau_globalMaps[astNode.value]
+            if replacedVar then
+                return replacedVar
             end
             return astNode.value
         elseif astNode.kind == luau_ast.Kind.FunctionCall then
@@ -170,15 +226,24 @@ if USE_PROPER_PARSING then
             for i, argumentNode in astNode.value[2] do
                 functionArguments[i] = visitNode(argumentNode)
             end
-            print(`{callingFunctionName}({dump(functionArguments)})`)
 
             if callingFunctionName == "Vector3.new" then
                 -- Lune doesn't have Vector3.new() but it has vector()
                 print("Transforming to native Vector3.new")
-                return (if Vector3 then Vector3.new else vector)(unpack(functionArguments))
+                return (if Vector3 then Vector3.new else getfenv().vector)(unpack(functionArguments))
+            end
+            print(callingFunctionName)
+
+            if callingFunctionName == `{parser_keywords.FE2_LIB}.Script.MovePart` then
+                print("doing move part with", functionArguments)
+
+            elseif callingFunctionName == `{parser_keywords.FE2_LIB}.Script.MoveWater` then
+                print("doing move part with", functionArguments)
+            elseif callingFunctionName == "task.wait" or callingFunctionName == "wait" then
+                
             end
 
-            return {functionName = callingFunctionName, arguments = functionArguments}
+            return {functionName = callingFunctionName, functionArguments = functionArguments}
         elseif astNode.kind == luau_ast.Kind.IndexName then
             local name = table.create(#astNode.value)
             for i, nameValue in astNode.value do
@@ -186,14 +251,29 @@ if USE_PROPER_PARSING then
                     continue
                 end
                 name[i] = visitNode(nameValue)
+                if type(name[i]) == "table" then
+                    parser_functions_allocate[name[i].functionName] = name[i]
+                    name[i] = `$FUNC_ALLOCATE({name[i].functionName})`
+                end
+
+                if i == 1 then
+                    local replacedVar = variables.scope_variables[name[i]] or luau_globalMaps[name[i]]
+                    if replacedVar then
+                        name[i] = `$VAR_{name[i]}`
+                    end
+                end
             end
             return table.concat(name, ".")
-
+        elseif astNode.kind == luau_ast.Kind.SelfIndexName then
+            return `{visitNode(astNode.value[1])}.{visitNode(astNode.value[2])}`
         -- Simple types
-        elseif astNode.kind == luau_ast.Kind.Nil or astNode.kind == luau_ast.Kind.Number  then
+        elseif table.find({luau_ast.Kind.True, luau_ast.Kind.False, luau_ast.Kind.Nil, luau_ast.Kind.Number, luau_ast.Kind.String}, astNode.kind) then
             return astNode.value
+        elseif astNode.kind == luau_ast.Kind.InterpolatedString then
+            print("isnane", astNode.value)
         else
             print(astNode.kind, "not implemented")
+            return
         end
     end
     for _, astNode in astRoot.children do
