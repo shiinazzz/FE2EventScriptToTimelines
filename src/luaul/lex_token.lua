@@ -32,7 +32,6 @@ Token.Kind = {
 	-- Operators
 	GreaterEqual = "GreaterEqual",
 	Plus = "Plus",
-	SemiColon = "SemiColon",
 	RightParen = "RightParen",
 	RightBrace = "RightBrace",
 	LessEqual = "LessEqual",
@@ -55,6 +54,13 @@ Token.Kind = {
 	Colon = "Colon",
 	Hashtag = "Hashtag",
 	Dot3 = "Dot3",
+
+	-- Interpolated string
+	InterpolatedStringBegin = "InterpolatedStringBegin",
+	InterpolatedStringMid = "InterpolatedStringMid",
+	InterpolatedStringEnd = "InterpolatedStringEnd",
+	-- An interpolated string with no expressions (like `x`)
+	InterpolatedStringSimple = "InterpolatedStringSimple",
 
 	-- Delimiters
 	Comma = "Comma",

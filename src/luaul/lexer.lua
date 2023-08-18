@@ -93,6 +93,8 @@ Lexer.UnsortedOperators = {
 	["}"] = Token.Kind.RightBrace,
 }
 
+local BraceStack = {}
+
 function Lexer.new(source)
 	local self = {}
 	setmetatable(self, Lexer)
@@ -244,6 +246,52 @@ function Lexer:readLongString(isComment, start)
 	return Token.new(tokenKind, start, self._position, asString)
 end
 
+function Lexer:readInterpolatedStringBegin()
+	local start = self._position
+	self:_expect("`")
+	return self:readInterpolatedStringSection(start, Token.Kind.InterpolatedStringBegin, Token.Kind.InterpolatedStringSimple)
+end
+
+function Lexer:readInterpolatedStringSection(start, formatType, endType)
+	local charArray = {}
+	while not self:_accept("`") do
+		local character = self:_advance()
+		if character == "\r" or character == "\n" then
+			self:_error("Maliformed interpolated string, did you forget to add a '`'?")
+		elseif character == "\\" then
+			-- Allow for \u{}, which would otherwise be consumed by looking for {
+			if self:_peek(1) == "u" and self:_peek(2) == "{" then
+				table.insert(charArray, character)
+				table.insert(charArray, self:_advance())
+				table.insert(charArray, self:_advance())
+				character = ""
+			else
+				local escapeChar = self:_advance()
+				local escapeSequence = Lexer.EscapeSequences[escapeChar]
+				if not escapeSequence then
+					self:_error("%s is not a valid escape sequence", escapeChar)
+					break
+				end
+
+				character = escapeChar
+			end
+		elseif character == "{" then
+			table.insert(BraceStack, true)
+
+			if self:_peek(1) == "{" then
+				self:_error("Double braces are not permitted within interpolated strings. Did you mean '\\{'?")
+			end
+
+			local asString = table.concat(charArray)
+			return Token.new(formatType, start, self._position, asString)
+		end
+		table.insert(charArray, character)
+	end
+
+	local asString = table.concat(charArray)
+	return Token.new(endType, start, self._position, asString)
+end
+
 --[[
 	Reads both multi-line and single-line comments.
 ]]
@@ -307,6 +355,10 @@ function Lexer:read()
 		return self:readQuotedString()
 	end
 
+	if self:_match("`") then
+		return self:readInterpolatedStringBegin()
+	end
+
 	-- Reserved is just another word for keywords in Lua(u).
 	for reserved, tokenType in pairs(Lexer.Reserved) do
 		if self:_accept(reserved) then
@@ -321,6 +373,19 @@ function Lexer:read()
 
 		for operator, tokenType in pairs(operatorGroup) do
 			if self:_accept(operator) then
+				if tokenType == Token.Kind.LeftBrace then
+					if #BraceStack == 0 then
+						table.insert(BraceStack, false)
+					end
+				elseif tokenType == Token.Kind.RightBrace then
+					if #BraceStack > 0 then
+						local topStack = table.remove(BraceStack, #BraceStack)
+						if topStack == true then
+							print("continue mid")
+							return self:readInterpolatedStringSection(self._position, Token.Kind.InterpolatedStringMid, Token.Kind.InterpolatedStringEnd)
+						end
+					end
+				end
 				return Token.new(tokenType, start, self._position)
 			end
 		end

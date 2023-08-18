@@ -12,6 +12,7 @@ AstNode.Kind = {
 	Name = "Name",
 	False = "False",
 	String = "String",
+	InterpolatedString = "InterpolatedString",
 	Number = "Number",
 
 	-- Unary operators

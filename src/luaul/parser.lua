@@ -410,6 +410,37 @@ function Parser:parseTableConstructor()
 	return AstNode.fromArray(AstNode.Kind.TableConstructor, fields)
 end
 
+function Parser:parseInterpolatedString()
+	local strings = {}
+	local exprs = {}
+	local canContinue = true
+
+	while true do
+		if self:_peek(Token.Kind.InterpolatedStringBegin) or self:_peek(Token.Kind.InterpolatedStringMid) or self:_peek(Token.Kind.InterpolatedStringEnd) or self:_peek(Token.Kind.InterpolatedStringSimple) then
+			canContinue = not self:_peek(Token.Kind.InterpolatedStringEnd) and not self:_peek(Token.Kind.InterpolatedStringSimple)
+			
+			local str = self:_accept(Token.Kind.InterpolatedStringBegin) or self:_accept(Token.Kind.InterpolatedStringMid) or self:_accept(Token.Kind.InterpolatedStringEnd) or self:_accept(Token.Kind.InterpolatedStringSimple)
+			print("str", str)
+			table.insert(strings, str)
+
+			if not canContinue then
+				break
+			end
+
+			if self:_peek(Token.Kind.InterpolatedStringMid) or self:_peek(Token.Kind.InterpolatedStringEnd) then
+				self:_error("Maliformed interpolated string, expected expression inside '{}'")
+			end
+
+			print("parseExpr")
+			local expr = self:parseExpr()
+			print(expr)
+			table.insert(exprs, expr)
+		end
+	end
+
+	return AstNode.new(AstNode.Kind.InterpolatedString, strings, exprs)
+end
+
 function Parser:parseSimpleExpr()
 	-- Parser for simple tokens, where the corresponding node can be found through a table.
 	local nodeKind = Parser.simpleTokens[self._token.kind]
@@ -429,7 +460,7 @@ function Parser:parseSimpleExpr()
 	end
 
 	-- String parser.
-	local str = self:_accept(Token.Kind.QuotedString) or self:_accept(Token.Kind.LongString)
+	local str = self:_accept(Token.Kind.QuotedString) or self:_accept(Token.Kind.LongString) or self:_accept(Token.Kind.InterpolatedStringSimple)
 	if str then
 		return AstNode.fromValue(AstNode.Kind.String, str.value)
 	end
@@ -438,6 +469,12 @@ function Parser:parseSimpleExpr()
 	local number = self:_accept(Token.Kind.Number)
 	if number then
 		return AstNode.fromValue(AstNode.Kind.Number, number.value)
+	end
+
+	-- Interpolated string parser.
+	local interBegin = self:_peek(Token.Kind.InterpolatedStringBegin)
+	if interBegin then
+		return self:parseInterpolatedString()
 	end
 
 	return self:parsePrimaryExpr()
@@ -705,7 +742,7 @@ function Parser:parseReturnTypeAnnotation()
 end
 
 function Parser:parseOptionalReturnTypeAnnotation()
-	if self.options.allowTypeAnnotations and (self:_accept(Token.Kind.Colon) or self:_accept(Token.Kind.SkinnyArrow)) then
+	if self:_accept(Token.Kind.Colon) or self:_accept(Token.Kind.SkinnyArrow) then
 		-- TODO: Check for if the user used a skinny-arrow, and throw a deprecation warning.
 		return self:parseReturnTypeAnnotation()
 	end
@@ -795,7 +832,7 @@ function Parser:parseFunctionBody()
 	self:_expect(Token.Kind.RightParen)
 
 	local typeList = self:parseOptionalReturnTypeAnnotation()
-	local body = self:parseBody()
+	local body = self:parseBlock()
 
 	return AstNode.new(AstNode.Kind.Function, generics, genericPacks, bindings, typeList, body)
 end
