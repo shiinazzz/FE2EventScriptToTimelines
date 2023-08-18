@@ -5,21 +5,23 @@ local idkLib = game.Workspace.Multiplayer:GetMapVals()
 local l = workspace.Multiplayer:GetMapVals()
 local test = idkLib
 local Lib = l
-local acallingfunction = workspace:Help()
-acallingfunction.call()
+local acallingfunction = workspace:Help()  -- mostly testing the parser
+acallingfunction.call() -- mostly testing the parser
 test.Script.MoveWater(Vector3.new(1, 2, 3), 10)
 idkLib.Script.MovePart()
 local testinter = `hi`
 local testInterExpr = `hi{1 + 2}`
 l.Script.MovePart()
 
-local function Test(i)
+local function Test(i)  -- mostly testing the parser
     wait(1)
     Lib.Script.MoveWater()
     task.wait(2)
 end
 
 test()
+
+Lib.Script.MovePart(Lib.Map.hentai, Vector3.new(1, 2, 3), 2, true)
 ]]
 
 local luau_reserveds = {"if", "then", "end", "for", "in", "local"}
@@ -156,6 +158,17 @@ end
 
 -- EventScript->Timelines related functions
 function addTimelineData(data: {[string]: string})
+    local function countTable(tbl)
+        local i = 0
+        for _ in tbl do
+            i += 1
+        end
+        return i
+    end
+    if countTable(data) == 0 then
+        return
+    end
+
     table.insert(timelinesOutput, data)
 end
 
@@ -164,7 +177,6 @@ if USE_PROPER_PARSING then
     local luau_parser = require("luaul/parser")
     local luau_ast = require("luaul/ast")
     local luau_tokens = luau_lexer.new(eventScript):scan()
-    print(luau_tokens)
     local parser = luau_parser.new(luau_tokens)
     parser:parseChunk()
     local astRoot = parser.result
@@ -231,16 +243,36 @@ if USE_PROPER_PARSING then
                 -- Lune doesn't have Vector3.new() but it has vector()
                 print("Transforming to native Vector3.new")
                 return (if Vector3 then Vector3.new else getfenv().vector)(unpack(functionArguments))
+            elseif callingFunctionName == "CFrame.new" then
+
             end
             print(callingFunctionName)
 
             if callingFunctionName == `{parser_keywords.FE2_LIB}.Script.MovePart` then
                 print("doing move part with", functionArguments)
-
+                addTimelineData({
+                    XFrame_Function = "MovePart",
+                    XFrame_Timestamp = delayTimePerScope[currentScope],
+                    Object = functionArguments[1],
+                    Translate = functionArguments[2],
+                    XFrame_Length = functionArguments[3],
+                    UseLocalSpace = functionArguments[4],
+                    EasingStyle = functionArguments[5],
+                    EasingDirection = functionArguments[6]
+                })
             elseif callingFunctionName == `{parser_keywords.FE2_LIB}.Script.MoveWater` then
-                print("doing move part with", functionArguments)
+                print("doing move water with", functionArguments)
+                addTimelineData({
+                    XFrame_Function = "MovePart",
+                    XFrame_Timestamp = delayTimePerScope[currentScope],
+                    Object = functionArguments[1],
+                    Translate = functionArguments[2],
+                    XFrame_Length = functionArguments[3],
+                    UseLocalSpace = functionArguments[4],
+                })
             elseif callingFunctionName == "task.wait" or callingFunctionName == "wait" then
-                
+                print(`delaying time in scope {currentScope} by {functionArguments[1]}`)
+                delayTimePerScope[currentScope] += tonumber(functionArguments[1]) or 0
             end
 
             return {functionName = callingFunctionName, functionArguments = functionArguments}
@@ -268,6 +300,13 @@ if USE_PROPER_PARSING then
             return `{visitNode(astNode.value[1])}.{visitNode(astNode.value[2])}`
         -- Simple types
         elseif table.find({luau_ast.Kind.True, luau_ast.Kind.False, luau_ast.Kind.Nil, luau_ast.Kind.Number, luau_ast.Kind.String}, astNode.kind) then
+            if astNode.kind == luau_ast.Kind.True then
+                return true
+            elseif astNode.kind == luau_ast.Kind.False then
+                return false
+            elseif astNode.kind == luau_ast.Kind.Nil then
+                return nil
+            end
             return astNode.value
         elseif astNode.kind == luau_ast.Kind.InterpolatedString then
             -- ignore
@@ -280,6 +319,8 @@ if USE_PROPER_PARSING then
     for _, astNode in astRoot.children do
         visitNode(astNode)
     end
+
+    print('results dump\n- scope vars:', variables.scope_variables, "-timeline data:", timelinesOutput)
 else
     for token, content in lexer.scan(eventScript) do
         content = cleanLexContent(content)
@@ -433,6 +474,5 @@ else
             end
         end
     end
+    print(`results dump:\n-hold datas:{dump(holdDatas)}\n-indexing datas:{dump(indexing)}\n-scope vars:{dump(variables.scope_variables)}\n-argument datas:{dump(arguments)}`)
 end
-
-print(`results dump:\n-hold datas:{dump(holdDatas)}\n-indexing datas:{dump(indexing)}\n-scope vars:{dump(variables.scope_variables)}\n-argument datas:{dump(arguments)}`)
