@@ -46,12 +46,6 @@ Parser.binaryOpers = {
 	[Token.Kind.ReservedOr] = AstNode.Kind.Or,
 }
 
-Parser.defaultOptions = {
-	allowTypeAnnotations = true,
-	supportContinueStatement = true,
-	captureComments = false,
-}
-
 function Parser.new(tokens, names, options, advancer)
 	local self = {}
 	setmetatable(self, Parser)
@@ -68,7 +62,6 @@ function Parser.new(tokens, names, options, advancer)
 
 	self._tokens = tokens
 	self._names = names or {}
-	self._options = Parser._parseOptions(options or {})
 	self._token = self._advancer()
 
 	return self
@@ -90,17 +83,6 @@ function Parser.useGeneric(generic, subParser, ...)
 	return function(self)
 		return generic(self, operators, subParser)
 	end
-end
-
---[[
-	Parses the parser's options and insertes defaults for keys that were not provided by the user.
-]]
-function Parser._parseOptions(options)
-	for option, default in pairs(Parser.defaultOptions) do
-		options[option] = options[option] == nil and default or options[option]
-	end
-
-	return options
 end
 
 --[[
@@ -195,16 +177,23 @@ end
 function Parser:_expect(tokenKind, context)
 	local token = self._token
 
+	if token.kind == Token.Kind.Comment then
+		-- we ignore comment
+		repeat
+			self:_advance()
+			token = self._token
+		until token.kind ~= Token.Kind.Comment
+	end
 	if not token or token.kind ~= tokenKind then
 		if context then
 			self:_error(
-				"Expected %s when parsing %s, got %s",
+				"Expected Token.%s when parsing %s, got Token.%s",
 				tostring(tokenKind),
 				context,
 				tostring(token.kind)
 			)
 		else
-			self:_error("Expected %s, got %s", tostring(tokenKind), tostring(token.kind))
+			self:_error("Expected Token.%s, got Token.%s", tostring(tokenKind), tostring(token.kind))
 		end
 	end
 
@@ -311,7 +300,7 @@ end
 function Parser:parseAssertionExpr()
 	local expr = self:parseSimpleExpr()
 
-	if self._options.allowTypeAnnotations and self:_accept(Token.Kind.DoubleColon) then
+	if self:_accept(Token.Kind.DoubleColon) then
 		local annotation = self:parseTypeAnnotation()
 		expr = AstNode.new(AstNode.Kind.TypeAssertion, expr, annotation)
 	end
@@ -1063,20 +1052,18 @@ function Parser:parseStat()
 	-- TODO: Take another look at this code. Identifiers should be same thing
 	-- as names.
 	if expr.kind == AstNode.Kind.Name then
-		if self._options.allowTypeAnnotations then
-			-- I did not know that `type` was actually an operator until now.
-			if expr.value == "type" then
-				return self:parseTypeAlias(expr, false)
-			elseif expr.value == "export" and self._token.kind == Token.Kind.Name and self._token.value == "type" then
-				return self:parseTypeAlias(expr, true)
-			end
+		-- I did not know that `type` was actually an operator until now.
+		if expr.value == "type" then
+			return self:parseTypeAlias(expr, false)
+		elseif expr.value == "export" and self._token.kind == Token.Kind.Name and self._token.value == "type" then
+			return self:parseTypeAlias(expr, true)
 		end
 
-		if self._options.supportContinueStatement and expr.value == "continue" then
+		if expr.value == "continue" then
 			return AstNode.new(AstNode.Kind.Continue)
 		end
 
-		if self._options.allowTypeAnnotations and expr.value == "declare" then
+		if expr.value == "declare" then
 			return self:parseDeclaration()
 		end
 	end
