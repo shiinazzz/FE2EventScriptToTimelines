@@ -2,7 +2,7 @@ local luau = require("./luau")
 local lexer = if script then require(script.lexer) else require("./lexer/init")
 local eventScript = [[
 local test = Lib
-Lib.Script.MoveWater(Vector3.new(1, 2, 3), 10)
+test.Script.MoveWater(Vector3.new(1, 2, 3), 10)
 ]]
 
 local luau_reserveds = {"if", "then", "end", "for", "in", "local"}
@@ -160,6 +160,9 @@ if USE_PROPER_PARSING then
             end
             return table.concat(binding, ".")
         elseif astNode.kind == luau_ast.Kind.Name then
+            if variables.scope_variables[astNode.value] then
+                return variables.scope_variables[astNode.value]
+            end
             return astNode.value
         elseif astNode.kind == luau_ast.Kind.FunctionCall then
             local callingFunctionName = visitNode(astNode.value[1])
