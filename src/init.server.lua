@@ -138,10 +138,63 @@ end
 if USE_PROPER_PARSING then
     local luau_lexer = require("luaul/lexer")
     local luau_parser = require("luaul/parser")
+    local luau_ast = require("luaul/ast")
     local luau_tokens = luau_lexer.new(eventScript):scan()
     local parser = luau_parser.new(luau_tokens)
     parser:parseChunk()
     local astRoot = parser.result
+    
+    local function visitNode(astNode)
+        if astNode.kind == luau_ast.Kind.Local then
+            local toBeAssigned = visitNode(astNode.value[1][1])
+            local assignedValue = visitNode(astNode.value[2][1])
+            print(`{toBeAssigned} = {assignedValue}`)
+            variables.scope_variables[toBeAssigned] = assignedValue
+        elseif astNode.kind == luau_ast.Kind.Binding then
+            local binding = table.create(#astNode.value)
+            for i, nameValue in astNode.value do
+                if i == "n" then
+                    continue
+                end
+                binding[i] = visitNode(nameValue)
+            end
+            return table.concat(binding, ".")
+        elseif astNode.kind == luau_ast.Kind.Name then
+            return astNode.value
+        elseif astNode.kind == luau_ast.Kind.FunctionCall then
+            local callingFunctionName = visitNode(astNode.value[1])
+            local functionArguments = table.create(#astNode.value[2])
+            for i, argumentNode in astNode.value[2] do
+                functionArguments[i] = visitNode(argumentNode)
+            end
+            print(`{callingFunctionName}({dump(functionArguments)})`)
+
+            if callingFunctionName == "Vector3.new" then
+                -- Lune doesn't have Vector3.new() but it has vector()
+                return (if Vector3 then Vector3.new else vector)(unpack(functionArguments))
+            end
+
+            return {functionName = callingFunctionName, arguments = functionArguments}
+        elseif astNode.kind == luau_ast.Kind.IndexName then
+            local name = table.create(#astNode.value)
+            for i, nameValue in astNode.value do
+                if i == "n" then
+                    continue
+                end
+                name[i] = visitNode(nameValue)
+            end
+            return table.concat(name, ".")
+
+        -- Simple types
+        elseif astNode.kind == luau_ast.Kind.Nil or astNode.kind == luau_ast.Kind.Number  then
+            return astNode.value
+        else
+            print(astNode.kind, "not implemented")
+        end
+    end
+    for _, astNode in astRoot.children do
+        visitNode(astNode)
+    end
 else
     for token, content in lexer.scan(eventScript) do
         content = cleanLexContent(content)
