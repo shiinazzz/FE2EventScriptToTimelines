@@ -270,7 +270,8 @@ if USE_PROPER_PARSING then
         elseif table.find({luau_ast.Kind.True, luau_ast.Kind.False, luau_ast.Kind.Nil, luau_ast.Kind.Number, luau_ast.Kind.String}, astNode.kind) then
             return astNode.value
         elseif astNode.kind == luau_ast.Kind.InterpolatedString then
-            print("isnane", astNode.value)
+            -- ignore
+            return
         else
             print(astNode.kind, "not implemented")
             return
