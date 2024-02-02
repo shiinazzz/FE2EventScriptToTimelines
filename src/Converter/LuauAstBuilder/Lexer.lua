@@ -72,12 +72,15 @@ Lexer.Operators = {
 		["-="] = Token.SyntaxKind.MinusEqual,
 		["*="] = Token.SyntaxKind.StarEqual,
 		["/="] = Token.SyntaxKind.SlashEqual,
+		["%="] = Token.SyntaxKind.ModuloEqual,
 		["~="] = Token.SyntaxKind.NotEqual,
 		["=="] = Token.SyntaxKind.EqualTo,
 		["<="] = Token.SyntaxKind.LessEqual,
 		[">="] = Token.SyntaxKind.GreaterEqual,
+		["^="] = Token.SyntaxKind.CaretEqual,
 		
 		[".."] = Token.SyntaxKind.Dot2,
+		["..="] = Token.SyntaxKind.Dot2Equal,
 		
 		["::"] = Token.SyntaxKind.DoubleColon,
 		["->"] = Token.SyntaxKind.SkinnyArrow
@@ -152,58 +155,75 @@ function Lexer:m_NextNumber(start: number): Token.Token
 		end
 		
 		nextCharacter = self:m_Peek(0)
-	until not Lexer.ValidNumberCharacters:find(nextCharacter, 1, true)
+	until not Lexer.ValidNumberCharacters:find(nextCharacter, 1, true) or self.m_Position > #self.m_Source
 	
 	return Token.new(Token.SyntaxKind.Number, start, prefix .. table.concat(characters))
 end
 
 function Lexer:m_NextIdentifier(start: number): Token.Token
 	local characters: Array<string> = {}
-	while Lexer.ValidCharacters:find(self:m_Peek(0), 1, true) do
+	while Lexer.ValidCharacters:find(self:m_Peek(0), 1, true) and self.m_Position <= #self.m_Source do
 		table.insert(characters, self:m_NextCharacter(1))
 	end
 	
 	return Token.new(Token.SyntaxKind.Identifier, start, table.concat(characters))
 end
 
-function Lexer:m_ReadLongString(): string
-	self:m_Expect("[")
-	local startCount = 0
-	while self:m_Validate("=") ~= nil do
-		startCount += 1
-	end
-	self:m_Expect("[")
+function Lexer:m_SkipLongSeparator()
+	local StartChar = self:m_Peek(0)
+	assert(StartChar == "[" or StartChar == "]")
+	self:m_NextCharacter(1)
 
-	local suffix = `]{("="):rep(startCount)}]`
+	local count = 0
+	while self:m_Validate("=") do
+		count += 1
+	end
+
+	return StartChar == self:m_Peek(0) and count or -count - 1
+end
+
+function Lexer:m_ReadLongString(separator: number): string
+	self:m_Expect("[")
 
 	local characters: Array<string> = {}
-	while self:m_Validate(suffix) == nil do
-		table.insert(characters, self:m_NextCharacter(1))
+
+	while self.m_Position <= #self.m_Source do
+		if self:m_Peek(0) == "]" then
+			if self:m_SkipLongSeparator() == separator then
+				self:m_Expect("]")
+				return table.concat(characters)
+			end
+		else
+			table.insert(characters, self:m_NextCharacter(1))
+		end
 	end
-	
-	return table.concat(characters)
+
+	error("Broken string")
 end
 
 function Lexer:m_NextComment(start: number): Token.Token
 	if self:m_Match("[") then
-		return Token.new(Token.SyntaxKind.Comment, start, self:m_ReadLongString())
+		local separator = self:m_SkipLongSeparator()
+		if separator >= 0 then
+			return Token.new(Token.SyntaxKind.Comment, start, self:m_ReadLongString(separator))
+		end
 	end
 	local characters: Array<string> = {}
-	while self:m_Validate("\n") == nil do
+	while self:m_Validate("\n") == nil and self.m_Position <= #self.m_Source do
 		table.insert(characters, self:m_NextCharacter(1))
 	end
 
 	return Token.new(Token.SyntaxKind.Comment, start, table.concat(characters))
 end
 
-function Lexer:m_NextLongString(start: number): Token.Token
-	return Token.new(Token.SyntaxKind.LongString, start, self:m_ReadLongString())
+function Lexer:m_NextLongString(start: number, separator: number): Token.Token
+	return Token.new(Token.SyntaxKind.LongString, start, self:m_ReadLongString(separator))
 end
 
 function Lexer:m_NextString(start: number): Token.Token
 	local quote = self:m_Validate("'") or self:m_Validate('"')
 	local characters: Array<string> = {}
-	while self:m_Validate(quote) == nil do
+	while self:m_Validate(quote) == nil and self.m_Position <= #self.m_Source do
 		local character = self:m_NextCharacter(1)
 		if character == "\\" then
 			character = self:m_NextCharacter(1)
@@ -253,14 +273,19 @@ end
 function Lexer:m_NextToken(): Token.Token?
 	local start: number = self.m_Position
 	
-	if self:m_Match("--") then
+	if self:m_Validate("--") then
 		return self:m_NextComment(start)
 	end
 	if self:m_Match("'") or self:m_Match('"') then
 		return self:m_NextString(start)
 	end
-	if self:m_Match("[[") or self:m_Match("[=") then
-		return self:m_NextLongString(start)
+	if self:m_Match("[") then
+		local separator = self:m_SkipLongSeparator()
+		if separator >= 0 then
+			return self:m_NextLongString(start, separator)
+		else
+			self:m_NextCharacter(-1)
+		end
 	end
 	if self:m_Match("`") then
 		return self:m_NextInterpolatedString(start)
@@ -289,7 +314,9 @@ function Lexer:m_NextToken(): Token.Token?
 		end
 	end
 	for keyword, syntaxKind in pairs(Lexer.ReservedKeywords) do
-		if not Lexer.ValidCharacters:find(self:m_PeekAt(start + #keyword, 0), 1, true) and self:m_Validate(keyword) ~= nil then -- TODO optimise but this is necessary, it can't be removed
+		local nextWord = self:m_PeekAt(start + #keyword, 0)
+		
+		if (not Lexer.ValidCharacters:find(nextWord, 1, true) or nextWord == "") and self:m_Validate(keyword) ~= nil then -- TODO optimise but this is necessary, it can't be removed
 			return Token.new(syntaxKind, start, keyword)
 		end
 	end
@@ -313,7 +340,7 @@ end
 
 function Lexer:Scan(): Array<Token.Token>
 	local tokens = {}
-	while self.m_Position < #self.m_Source do
+	while self.m_Position <= #self.m_Source do
 		local token = self:m_NextToken()
 		if token == nil then break end
 		

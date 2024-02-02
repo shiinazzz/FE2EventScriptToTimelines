@@ -8,7 +8,11 @@ export type SyntaxNode = typeof(setmetatable({} :: {
 	Kind: SyntaxNodeKind,
 	Children: Array<SyntaxNode>?,
 	Value: any,
-    ScopeName: string?,
+	Position: {
+		Start: number,
+		End: number
+	},
+	ScopeName: string?,
 }, SyntaxNode))
 export type SyntaxNodeKind = number
 
@@ -106,17 +110,29 @@ SyntaxNode.SyntaxNodeKind = { -- TODO reorder this
 --	return `SyntaxNode.SyntaxNodeKind.{KindName}`
 --end
 
-function SyntaxNode.new(kind: SyntaxNodeKind, children: Array<SyntaxNode>, value: any): SyntaxNode
+function SyntaxNode.new(kind: SyntaxNodeKind, children: Array<SyntaxNode>, value: any, positionOverwrite: { Start: number, End: number }?): SyntaxNode
+	local firstPosition = children and #children > 0 and children[1].Position.Start or -math.huge
+	local lastPosition = children and #children > 0 and children[#children].Position.End or math.huge
+	
 	return setmetatable({
 		Kind = kind,
+		Position = positionOverwrite and positionOverwrite or {
+			Start = firstPosition,
+			End = lastPosition
+		},
 		Children = children,
 		Value = value
 	}, SyntaxNode)
 end
 
-function SyntaxNode.fromValue(kind: SyntaxNodeKind, value: any): SyntaxNode
+function SyntaxNode.fromValue(kind: SyntaxNodeKind, position: { Start: number, End: number }, value: any): SyntaxNode
+	if not position.End then
+		error('ok')
+	end
+	
 	return setmetatable({
 		Kind = kind,
+		Position = position,
 		Value = value
 	}, SyntaxNode)
 end
